@@ -64,7 +64,6 @@ scp -r openclaw-file-chat node@<claw-host>:~/.openclaw/extensions/file-chat
         "enabled": true,
         "config": {
           "path": "/api/v1/file-chat",
-          "apiKey": "换成你自己的密钥",
           "filesRoot": "/home/node/.openclaw/file-chat/files",
           "publicPathPrefix": ""
         }
@@ -77,7 +76,7 @@ scp -r openclaw-file-chat node@<claw-host>:~/.openclaw/extensions/file-chat
 改完重启网关。启动日志里应该出现：
 
 ```
-[file-chat] route /api/v1/file-chat registered (filesRoot=..., auth=plugin)
+[file-chat] route /api/v1/file-chat registered (filesRoot=..., auth=gateway)
 ```
 
 **加载不出来时按顺序检查**（这几条都是 OpenClaw 的真实门槛）：
@@ -91,7 +90,13 @@ scp -r openclaw-file-chat node@<claw-host>:~/.openclaw/extensions/file-chat
 
 ## 4. 请求
 
-`POST <path>`，认证用 `X-API-Key: <apiKey>`（未配置 `apiKey` 时改为走网关自身凭据）。
+`POST <path>`，**认证完全交给网关**：路由以 `auth: "gateway"` 注册，网关的 HTTP 鉴权中间件
+（`Authorization: Bearer <gateway-token>`）会先于本插件执行，未通过鉴权的请求根本到不了 handler。
+插件自身**没有 API Key**——一把实例级网关凭据覆盖全部路由，不引入第二份需要轮换的密钥，
+这也正是 `openclaw-controller` 调用插件的方式。
+
+> ⚠️ 网关鉴权的强度取决于实例配置：`gateway.auth.mode` 为 `token` / `password` 时有效；
+> 若显式配成 `none`，该路由就是完全开放的。生产实例请勿使用 `none`。
 
 ### 4.1 JSON（OpenAI 风格）
 
@@ -117,8 +122,8 @@ scp -r openclaw-file-chat node@<claw-host>:~/.openclaw/extensions/file-chat
 
 ```
 POST /api/v1/file-chat
+Authorization: Bearer <gateway-token>
 Content-Type: multipart/form-data
-X-API-Key: <apiKey>
 
 message = 帮我总结这份合同
 user    = alice
@@ -207,7 +212,6 @@ data: [DONE]
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `path` | `/api/v1/file-chat` | 路由路径 |
-| `apiKey` | 无 | 设置后要求 `X-API-Key`；未设置则走网关凭据 |
 | `filesRoot` | `~/.openclaw/file-chat/files` | 入站/出站根目录 |
 | `inboundDirName` / `outboundDirName` | `inbound` / `outbound` | 子目录名 |
 | `sessionScopedDirs` | `true` | 是否按会话再分一层 |
@@ -226,7 +230,7 @@ data: [DONE]
 
 ```bash
 curl -s http://<claw-host>:<port>/api/v1/file-chat \
-  -H 'X-API-Key: <apiKey>' -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <gateway-token>' -H 'Content-Type: application/json' \
   -d '{
     "message": "读取附件，然后把要点写成 report.md 放到出站目录，并在正文里给出相对路径",
     "user": "smoke",
@@ -238,7 +242,7 @@ curl -s http://<claw-host>:<port>/api/v1/file-chat \
 本地回归（不需要 OpenClaw，用打桩宿主跑通全链路）：
 
 ```bash
-npm run smoke     # 53 项断言：JSON/multipart/流式/路径穿越/鉴权/URL 入站/出站 diff
+npm run smoke     # 55 项断言：JSON/multipart/流式/路径穿越/网关鉴权/URL 入站/出站 diff
 ```
 
 `.smoke/run.mjs` 与 `.smoke/node_modules/openclaw/**` 是**手写的测试桩**（不是依赖），
@@ -262,7 +266,7 @@ npm run smoke     # 53 项断言：JSON/multipart/流式/路径穿越/鉴权/URL
 ## 9. 已知边界
 
 - **不做并发/限流/TTL 清理**：出站目录会持续增长，需要你自己定期清理
-- **没有 per-user 身份**：`apiKey` 是全端点共享密钥；多租户要靠前端自己隔离 `user`
+- **没有 per-user 身份**：插件不携带任何凭据，鉴权是实例级的（网关 token）；多租户要靠前端自己隔离 `user`
 - **没有请求级超时**：agent 跑多久，SSE 连接就开多久（与 `custom-chat` 一致）
 - **单请求体上限 64 MiB**：base64 会带来约 33% 膨胀，超大文件请走下载链接
 - **`url` 入站依赖宿主 SSRF 守卫**：默认策略会拦截内网/回环目标，若你的文件服务在内网需要单独放通
@@ -275,6 +279,9 @@ npm run smoke     # 53 项断言：JSON/multipart/流式/路径穿越/鉴权/URL
 | 结论 | 位置 |
 |---|---|
 | 插件可注册 HTTP 路由 | `api.registerHttpRoute` — `src/plugins/plugin-api.types.ts:222` |
+| `auth: "gateway"` 会让网关先做鉴权 | `src/gateway/server/plugins-http/route-auth.ts:13-17`（`matchedPluginRoutesRequireGatewayAuth`） |
+| `/api/...` 不在强制保护名单，`auth:"plugin"` 时网关确实不拦 | `PROTECTED_PLUGIN_ROUTE_PREFIXES` — `src/gateway/security-path.ts:113`（仅 `/api/channels`） |
+| 无 token 时网关拒绝启动（所以 gateway 档不等于裸奔） | `src/gateway/auth.ts:167-174` |
 | 入站选项面 = `AgentCommandOpts` 减私有字段 | `src/agents/command/types.ts:244-265` |
 | `extraSystemPrompt` 并入系统提示词 | `src/agents/embedded-agent-runner/run/attempt-system-prompt-prepare.ts:212` |
 | 宿主只把图片作为内联附件 | `AgentCommandOpts.images` — `src/agents/command/types.ts:66` |

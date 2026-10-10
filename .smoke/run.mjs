@@ -93,7 +93,6 @@ const fakeApi = {
   name: "File Chat HTTP API",
   config: { agents: { defaults: {} } },
   pluginConfig: {
-    apiKey: "secret-key",
     filesRoot,
     publicPathPrefix: "",
   },
@@ -137,7 +136,7 @@ const fileServer = http.createServer((req, res) => {
 await new Promise((resolve) => fileServer.listen(0, "127.0.0.1", resolve));
 const remoteFileUrl = `http://127.0.0.1:${fileServer.address().port}/remote.pdf`;
 
-const AUTH = { "x-api-key": "secret-key", "content-type": "application/json" };
+const JSON_HEADERS = { "content-type": "application/json" };
 
 // -------------------------------------------------------------- test 1: JSON
 
@@ -145,7 +144,7 @@ section("1. JSON request, non-streaming, base64 attachment");
 {
   const res = await fetch(base, {
     method: "POST",
-    headers: AUTH,
+    headers: JSON_HEADERS,
     body: JSON.stringify({
       message: "总结这个文件",
       user: "alice",
@@ -158,6 +157,7 @@ section("1. JSON request, non-streaming, base64 attachment");
   const json = await res.json();
 
   check("status 200", res.status === 200, res.status);
+  check("route registered with gateway auth", captured.route?.auth === "gateway", captured.route?.auth);
   check("finish_reason stop", json.choices?.[0]?.finish_reason === "stop", json.choices?.[0]?.finish_reason);
   check("assistant content streamed", String(json.choices?.[0]?.message?.content ?? "").includes("done"), json.choices?.[0]?.message?.content);
   check("reasoning_content present", json.choices?.[0]?.message?.reasoning_content === "思考中", json.choices?.[0]?.message?.reasoning_content);
@@ -206,7 +206,7 @@ section("2. Second turn in same session: unchanged files are not re-reported");
 {
   const res = await fetch(base, {
     method: "POST",
-    headers: AUTH,
+    headers: JSON_HEADERS,
     body: JSON.stringify({ message: "再来一次", user: "alice", stream: false }),
   });
   const json = await res.json();
@@ -228,7 +228,6 @@ section("3. Streaming (SSE) with multipart upload");
 
   const res = await fetch(base, {
     method: "POST",
-    headers: { "x-api-key": "secret-key" },
     body: form,
   });
   const text = await res.text();
@@ -260,7 +259,7 @@ section("4. Path traversal in filename is neutralised");
 {
   const res = await fetch(base, {
     method: "POST",
-    headers: AUTH,
+    headers: JSON_HEADERS,
     body: JSON.stringify({
       message: "traversal",
       user: "carol",
@@ -286,7 +285,7 @@ section("4b. Traversal in sessionKey stays inside filesRoot");
 {
   const res = await fetch(base, {
     method: "POST",
-    headers: AUTH,
+    headers: JSON_HEADERS,
     body: JSON.stringify({ message: "sid", sessionKey: "../../escape", stream: false }),
   });
   const json = await res.json();
@@ -303,32 +302,27 @@ section("4b. Traversal in sessionKey stays inside filesRoot");
 
 // ------------------------------------------------------------ test 5: errors
 
-section("5. Auth and validation errors");
+section("5. Validation errors");
 {
   const unauth = await fetch(base, {
     method: "POST",
-    headers: AUTH,
+    headers: JSON_HEADERS,
     body: JSON.stringify({ message: "" }),
   });
   check("empty message -> 400", unauth.status === 400, unauth.status);
 
-  const noKey = await fetch(base, {
+  // No plugin-level credential exists any more: the route is registered with
+  // auth: "gateway", so the host's middleware owns rejection (test 7).
+  const junkKey = await fetch(base, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message: "hi" }),
+    headers: { "content-type": "application/json", "x-api-key": "leftover-key" },
+    body: JSON.stringify({ message: "hi", user: "frank", stream: false }),
   });
-  check("missing api key -> 401", noKey.status === 401, noKey.status);
-
-  const wrongKey = await fetch(base, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": "nope" },
-    body: JSON.stringify({ message: "hi" }),
-  });
-  check("wrong api key -> 401", wrongKey.status === 401, wrongKey.status);
+  check("leftover X-API-Key header is ignored -> 200", junkKey.status === 200, junkKey.status);
 
   const reserved = await fetch(base, {
     method: "POST",
-    headers: AUTH,
+    headers: JSON_HEADERS,
     body: JSON.stringify({ message: "hi", sessionKey: "cron:job1" }),
   });
   check("reserved sessionKey namespace -> 400", reserved.status === 400, reserved.status);
@@ -338,7 +332,7 @@ section("5. Auth and validation errors");
 
   const badJson = await fetch(base, {
     method: "POST",
-    headers: AUTH,
+    headers: JSON_HEADERS,
     body: "{not json",
   });
   check("malformed JSON -> 400", badJson.status === 400, badJson.status);
@@ -350,7 +344,7 @@ section("6. Inbound file by download URL");
 {
   const res = await fetch(base, {
     method: "POST",
-    headers: AUTH,
+    headers: JSON_HEADERS,
     body: JSON.stringify({ message: "fetch it", user: "dave", stream: false, urls: [remoteFileUrl] }),
   });
   const json = await res.json();
@@ -367,9 +361,9 @@ section("6. Inbound file by download URL");
   );
 }
 
-// ------------------------------------------- test 7: no apiKey => gateway auth
+// ------------------------------------- test 7: gateway auth is the only mode
 
-section("7. Without apiKey the route uses gateway auth and skips key checks");
+section("7. Gateway auth is the only auth mode the plugin declares");
 {
   const captured2 = { route: undefined };
   const entry2 = (await import("./dist/index.js?fresh=1")).default;
@@ -381,6 +375,23 @@ section("7. Without apiKey the route uses gateway auth and skips key checks");
     },
   });
   check("auth is gateway", captured2.route?.auth === "gateway", captured2.route?.auth);
+  check(
+    "handler still runs when the host lets the request through",
+    typeof captured2.route?.handler === "function",
+    typeof captured2.route?.handler,
+  );
+
+  // The manifest must not advertise a credential the plugin no longer reads —
+  // a stale `apiKey` in a deployment config would otherwise look meaningful.
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(here, "..", "openclaw.plugin.json"), "utf-8"),
+  );
+  const properties = manifest.configSchema?.properties ?? {};
+  check(
+    "manifest advertises no apiKey option",
+    !Object.prototype.hasOwnProperty.call(properties, "apiKey"),
+    JSON.stringify(Object.keys(properties)),
+  );
 
   const server2 = http.createServer((req, res) => {
     Promise.resolve(captured2.route.handler(req, res)).catch(() => res.end());
@@ -393,7 +404,7 @@ section("7. Without apiKey the route uses gateway auth and skips key checks");
     body: JSON.stringify({ message: "no key needed", user: "erin", stream: false }),
   });
   const json = await res.json();
-  check("status 200 without api key", res.status === 200, res.status);
+  check("status 200 with no credential of any kind", res.status === 200, res.status);
   check("footer suppressed by config", !String(json.choices?.[0]?.message?.content ?? "").includes("outbound files"), json.choices?.[0]?.message?.content);
   await new Promise((resolve) => server2.close(resolve));
 }

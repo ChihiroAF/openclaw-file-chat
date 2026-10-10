@@ -13,7 +13,6 @@
  *         "enabled": true,
  *         "config": {
  *           "path": "/api/v1/file-chat",
- *           "apiKey": "your-secret-key",
  *           "filesRoot": "/home/node/.openclaw/file-chat/files"
  *         }
  *       }
@@ -21,6 +20,11 @@
  *   }
  * }
  * ```
+ *
+ * Authentication is NOT configured here: the route is registered with
+ * `auth: "gateway"`, so the gateway's own HTTP auth (Bearer token / password /
+ * trusted-proxy) protects it before the handler ever runs. There is
+ * deliberately no plugin-level API key — see README "认证".
  */
 import os from "node:os";
 import path from "node:path";
@@ -28,8 +32,6 @@ import path from "node:path";
 export type FileChatConfig = {
   /** HTTP route path. */
   path: string;
-  /** Optional API key required via the `X-API-Key` header. */
-  apiKey?: string;
   /**
    * Absolute root directory holding both file trees.
    *
@@ -136,7 +138,6 @@ export function resolveFileChatConfig({
 
   return {
     path: routePath,
-    apiKey: asNonEmptyString(cfg.apiKey),
     filesRoot,
     inboundDirName,
     outboundDirName,

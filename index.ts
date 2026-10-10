@@ -19,6 +19,10 @@
  *    before and after the run. Local paths inside assistant text are NOT
  *    sanitised (sanitisation only targets structured media fields and
  *    registered `MEDIA:` URLs), so plain relative paths survive verbatim.
+ *  - Authentication is entirely the gateway's job (`auth: "gateway"`). The
+ *    plugin carries no API key: one instance credential (the gateway token)
+ *    covers every proxied route, which is how openclaw-controller calls
+ *    plugins. See README "认证".
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -97,14 +101,6 @@ async function handleFileChat(
   if (req.method !== "POST") {
     sendError(res, 405, "method not allowed; use POST");
     return true;
-  }
-
-  if (cfg.apiKey) {
-    const provided = req.headers["x-api-key"];
-    if (provided !== cfg.apiKey) {
-      sendError(res, 401, "unauthorized");
-      return true;
-    }
   }
 
   let raw: Buffer;
@@ -560,13 +556,20 @@ export default definePluginEntry({
 
     api.registerHttpRoute({
       path: cfg.path,
-      auth: cfg.apiKey ? "plugin" : "gateway",
+      // Always delegate authentication to the gateway. The gateway's HTTP auth
+      // middleware runs before this handler (src/gateway/server/plugins-http/
+      // route-auth.ts: matchedPluginRoutesRequireGatewayAuth), so an
+      // unauthenticated request never reaches the plugin. The plugin therefore
+      // ships no API-key check of its own — one credential (the instance's
+      // gateway token) covers the whole instance, and there is no second secret
+      // to rotate.
+      auth: "gateway",
       match: "exact",
       handler: (req, res) => handleFileChat(req, res, cfg, api.logger),
     });
 
     api.logger.info?.(
-      `[file-chat] route ${cfg.path} registered (filesRoot=${cfg.filesRoot}, auth=${cfg.apiKey ? "plugin" : "gateway"})`,
+      `[file-chat] route ${cfg.path} registered (filesRoot=${cfg.filesRoot}, auth=gateway)`,
     );
   },
 });

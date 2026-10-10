@@ -1,8 +1,6 @@
 export type FileChatConfig = {
     /** HTTP route path. */
     path: string;
-    /** Optional API key required via the `X-API-Key` header. */
-    apiKey?: string;
     /**
      * Absolute root directory holding both file trees.
      *

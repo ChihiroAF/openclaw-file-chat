@@ -14,11 +14,6 @@
         "minLength": 1,
         "description": "HTTP route path for the file-chat endpoint"
       },
-      "apiKey": {
-        "type": "string",
-        "minLength": 1,
-        "description": "Optional API key required via X-API-Key header"
-      },
       "defaultProvider": {
         "type": "string",
         "minLength": 1,
