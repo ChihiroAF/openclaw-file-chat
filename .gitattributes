@@ -1,0 +1,47 @@
+# ===========================================================================
+# openclaw-file-chat — line ending policy
+# ===========================================================================
+#
+# WHY THIS FILE EXISTS
+#
+# Without it, how a file is stored depends on each contributor's local
+# `core.autocrlf` setting. That is exactly how a repo ends up with half its
+# files CRLF and half LF. This file pins the behaviour instead of trusting
+# every machine's git config.
+#
+# `eol=lf` (not a bare `text=auto`) is deliberate:
+#   1. The plugin's runtime target is a Linux container, so LF is what the
+#      host actually loads. Forcing LF everywhere means what you edit on
+#      Windows is byte-identical to what runs in the container.
+#   2. It overrides a local `core.autocrlf=true`, so git will not silently
+#      rewrite the working tree to CRLF on the next checkout.
+#
+# Side effect: with this file in place, `git add` no longer prints
+# "LF will be replaced by CRLF the next time Git touches it" for every file.
+* text=auto eol=lf
+
+# --- Never normalize binaries ----------------------------------------------
+# `text=auto` already detects binary content, but listing the types this
+# project is likely to gain (a logo, a screenshot, a packaged tarball) makes
+# the intent explicit and immune to detection edge cases.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.svg   text
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.tgz   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.wasm  binary
+
+# --- Windows-only scripts must keep CRLF to stay runnable -------------------
+# None in this repo today. Uncomment if you ever add one.
+# *.bat  text eol=crlf
+# *.cmd  text eol=crlf

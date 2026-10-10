@@ -1,0 +1,44 @@
+{
+  "name": "@chihiroaf/file-chat",
+  "version": "2026.10.0",
+  "description": "OpenClaw HTTP chat endpoint with inbound/outbound file support: accepts JSON or multipart uploads, stores files on local disk, and returns relative paths for generated files.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "smoke": "npm run build && node .smoke/run.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.7.1"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.7.1"
+    },
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ]
+  },
+  "files": [
+    "dist/**",
+    "openclaw.plugin.json",
+    "README.md"
+  ]
+}

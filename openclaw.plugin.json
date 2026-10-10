@@ -1,0 +1,84 @@
+{
+  "id": "file-chat",
+  "name": "File Chat HTTP API",
+  "description": "OpenAI-compatible HTTP chat endpoint that accepts file attachments (base64 or download URL) and returns generated files as local relative paths.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "description": "HTTP route path for the file-chat endpoint"
+      },
+      "apiKey": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional API key required via X-API-Key header"
+      },
+      "defaultProvider": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Default provider override for agent runs"
+      },
+      "defaultModel": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Default model override for agent runs"
+      },
+      "defaultThinking": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Thinking level passed to the agent run when the request does not specify one"
+      },
+      "filesRoot": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Absolute root directory for inbound/outbound files. Defaults to <home>/.openclaw/file-chat/files"
+      },
+      "inboundDirName": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Subdirectory name for inbound files (default: inbound)"
+      },
+      "outboundDirName": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Subdirectory name for outbound files (default: outbound)"
+      },
+      "sessionScopedDirs": {
+        "type": "boolean",
+        "description": "Scope inbound/outbound files under a per-session subdirectory (default: true)"
+      },
+      "publicPathPrefix": {
+        "type": "string",
+        "description": "Prefix prepended to relative file paths when they are emitted to clients"
+      },
+      "maxFileBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "description": "Maximum size of a single file in bytes (default: 20971520)"
+      },
+      "maxFilesPerRequest": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Maximum number of attached files per request (default: 10)"
+      },
+      "allowUrlFetch": {
+        "type": "boolean",
+        "description": "Allow inbound files to be fetched from a download URL (default: true)"
+      },
+      "appendOutboundFooter": {
+        "type": "boolean",
+        "description": "Append a footer listing generated files to the assistant reply (default: true)"
+      },
+      "outboundInstruction": {
+        "type": "string",
+        "description": "Override the system prompt fragment that tells the model where to write generated files"
+      }
+    }
+  }
+}
